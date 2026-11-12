@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="robots" content="noindex, nofollow">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>How Push Notifications Work</title>
+</head>
+<body>
+<article>
+<h1>How Push Notifications Work</h1>
+<p><img src="https://adheshsuryatej.github.io/My-content-Drafts/arjun/2026-11-12-r82zfn3u/cover.jpg" alt="A notification bubble with a bell travels from a cloud through a gateway along a lane to a phone screen." /></p>
+<p>Push notifications are messages delivered to a user's device even when your app isn't open. Get the path right, and a critical alert reaches the user in seconds. Get it wrong, and your logs show "accepted" while the phone stays silent.</p>
+<h2>The Stakes of Delivery</h2>
+<p>Your server receives a <code>200 OK</code> from <a href="https://developer.apple.com/documentation/usernotifications/sending-notification-requests-to-apns">APNs</a> or <a href="https://firebase.google.com/docs/cloud-messaging">FCM</a>. That response only means the gateway accepted the request. The message can still be dropped because the device token rotated, the payload exceeded the limit, or the user disabled notifications for your app. You won't see those drops in the gateway response.</p>
+<h2>The Journey in Four Steps</h2>
+<p>Here's how it works: the user installs the app, the device asks <a href="https://developer.apple.com/documentation/usernotifications/registering-your-app-with-apns">APNs</a> or <a href="https://firebase.google.com/docs/cloud-messaging">FCM</a> for a token, your server stores that token, and later your server sends a payload to the gateway with the token as the address. The gateway routes the message to the specific device. The OS wakes your app (or shows the alert directly) and your code handles the payload.</p>
+<p><img src="https://adheshsuryatej.github.io/My-content-Drafts/arjun/2026-11-12-r82zfn3u/diagram-f1ffda1b.png" alt="How a push notification travels from your server through APNs or FCM to the user's phone." /></p>
+<p><em>Figure 1: How a push notification travels from your server through APNs or FCM to the user's phone.</em></p>
+<p>On iOS the device token can change after an OS update or a reinstall. On Android the FCM registration token rotates periodically. If your server keeps an old token, the gateway returns a <code>410</code> or <code>invalid_token</code> error, but only if you check the response. Many integrations log the <code>200</code> and move on.</p>
+<h2>Where It Breaks</h2>
+<p>Token rotation is the most common silent failure. Payload limits are the next: APNs caps at 4 KB, FCM at 4 KB for both data and notification messages (HTTP v1 API). Larger payloads are rejected. <a href="https://developer.apple.com/documentation/usernotifications/sending-notification-requests-to-apns">Collapse identifiers</a> on iOS and <code>collapse_key</code> on Android let newer messages replace older ones, but if the device is offline the gateway keeps only the latest. The user sees one alert instead of five. <a href="https://www.nngroup.com/articles/push-notification/">Nielsen Norman Group</a> notes that users often disable channels that feel noisy, so a collapsed burst can look like a single ignored notification.</p>
+<p><img src="https://adheshsuryatej.github.io/My-content-Drafts/arjun/2026-11-12-r82zfn3u/section-3.jpg" alt="Five message bubbles are funnelled into a single bubble on an offline phone." /></p>
+<p>The hardest problems aren't solved when you finish building your push notification infrastructure. Building one doesn't matter unless you have the specifics of your customer behaviour straight. These patterns make it easier for push notifications to succeed.</p>
+<h2>Recap</h2>
+<ul>
+<li>The gateway <code>200</code> is not delivery; instrument token invalidation callbacks and FCM <code>sent</code>/<code>delivered</code> receipts.</li>
+<li>Track token rotation rates, payload size errors, and collapse-key drops per campaign.</li>
+</ul>
+<p><a href="https://www.rfc-editor.org/rfc/rfc8030">RFC 8030</a> defines the web push protocol if you need the same flow for browsers.</p>
+<hr />
+<p><em>Drafted with AI assistance, reviewed and edited by [AUTHOR NAME].</em></p>
+</article>
+</body>
+</html>
