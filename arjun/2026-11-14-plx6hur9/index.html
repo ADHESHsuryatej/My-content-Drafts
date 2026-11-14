@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="robots" content="noindex, nofollow">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The top 5 push notification services in 2026</title>
+</head>
+<body>
+<article>
+<h1>The top 5 push notification services in 2026</h1>
+<p><img src="https://adheshsuryatej.github.io/My-content-Drafts/arjun/2026-11-14-plx6hur9/cover.jpg" alt="Five violet clay platforms each send a mint bell notification toward a phone showing three blank notification cards." /></p>
+<p>Push notification services deliver messages to a user's device even when your app isn't open. Choose well and you ship reliable alerts with minimal code. Choose poorly and you spend weeks debugging token refreshes, quota limits, or a vendor that doesn't support the channel your product team just requested.</p>
+<p>This comparison covers four provider types: the raw platform APIs (FCM and APNs), a bundled mobile-first platform (OneSignal), and two orchestration APIs (Knock and SuprSend) that sit above multiple vendors and add workflows, preferences, and in-app inboxes.</p>
+<h2>At a glance</h2>
+<table>
+<thead>
+<tr>
+<th>Tool</th>
+<th>Best for</th>
+<th>Starting price</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="https://firebase.google.com/docs/cloud-messaging">Firebase Cloud Messaging (FCM)</a></td>
+<td>Teams that only need Android and iOS push and want zero vendor cost</td>
+<td>Free</td>
+</tr>
+<tr>
+<td><a href="https://developer.apple.com/documentation/usernotifications/sending-notification-requests-to-apns">Apple Push Notification service (APNs)</a></td>
+<td>iOS/macOS-only products that prefer direct control</td>
+<td>Free (Apple Developer Program $99/yr)</td>
+</tr>
+<tr>
+<td><a href="https://onesignal.com/pricing">OneSignal</a></td>
+<td>Mobile-first apps that want a dashboard, Journeys, and a generous free tier</td>
+<td>Free up to 1,000 MAU; Growth from $19/mo</td>
+</tr>
+<tr>
+<td><a href="https://knock.app/pricing">Knock</a></td>
+<td>Developer teams building multi-tenant SaaS who want code-first workflows and built-in multi-tenancy</td>
+<td>Free 10k msgs; Starter $250/mo</td>
+</tr>
+<tr>
+<td><a href="https://www.suprsend.com/pricing">SuprSend</a></td>
+<td>Products that need email, SMS, WhatsApp, in-app inbox, and preferences from one API</td>
+<td>Free 10k; Essentials $100/mo billed annually</td>
+</tr>
+</tbody>
+</table>
+<h2>Firebase Cloud Messaging (FCM)</h2>
+<p><a href="https://firebase.google.com/docs/cloud-messaging">Firebase Cloud Messaging</a> is Google's raw push pipeline for Android and iOS. It costs nothing per message, but you own token storage, retry logic, batching, and segmentation. The HTTP v1 API uses OAuth2 tokens and supports data-only payloads that wake a background handler. You still need an Apple Developer certificate to reach iOS devices through FCM's APNs bridge.</p>
+<p><strong>Pros:</strong> No per-message fees; works on both platforms from one API; scales to billions of devices. 
+<strong>Cons:</strong> You build everything else: token lifecycle, retry/backoff, user segmentation, scheduling, and cross-channel fallback. 
+<strong>Pricing:</strong> Free on both Spark and Blaze plans as of November 2026.</p>
+<h2>Apple Push Notification service (APNs)</h2>
+<p><a href="https://developer.apple.com/documentation/usernotifications/sending-notification-requests-to-apns">Apple Push Notification service</a> is the only way to reach iOS, iPadOS, macOS, watchOS, and visionOS devices. You send a JSON payload to Apple's HTTP/2 endpoint with a JWT signed by your AuthKey. APNs returns a per-device status (success, unregistered, payload too large) that you must handle to keep your token database clean. There is no per-message fee, but you need an active Apple Developer Program membership ($99/year).</p>
+<p><strong>Pros:</strong> Direct control over priority, collapse-id, and expiration; no vendor lock-in; lowest latency path to Apple devices. 
+<strong>Cons:</strong> iOS/macOS only; you implement token registration, feedback polling, retry logic, and all non-push channels yourself. 
+<strong>Pricing:</strong> Free per message; Apple Developer Program $99/yr as of November 2026.</p>
+<h2>OneSignal</h2>
+<p><a href="https://onesignal.com/pricing">OneSignal</a> bundles mobile push, web push, in-app messaging, email, and SMS into a dashboard with a visual Journey builder. The free tier includes unlimited mobile push and in-app for up to 1,000 monthly active users, 10,000 email sends/month, 3 active Journeys, and 6 segments. Growth starts at $19/mo and adds 20,000 email sends, 5 Journeys, 10 segments, and 90-day reporting history. Mobile push overage is $0.012 per MAU; web push is $0.004 per subscriber.</p>
+<p><strong>Pros:</strong> Generous free tier for early-stage mobile apps; Journeys and segmentation without code; supports web push and email in one UI. 
+<strong>Cons:</strong> Free tier caps at 1,000 MAU; multi-tenancy and advanced workflow logic (batching, digests, per-user preferences) require paid plans or aren't available. 
+<strong>Pricing:</strong> Free ≤1,000 MAU; Growth from $19/mo; Professional and Enterprise are custom as of November 2026.</p>
+<h2>Knock</h2>
+<p><a href="https://knock.app/pricing">Knock</a> is a developer-first orchestration layer. You define workflows in code (TypeScript SDK) or the visual builder, and Knock routes each step to the right provider: SendGrid, Postmark, Twilio, FCM, APNs, Slack, and more. The free plan includes 10,000 messages/month, unlimited workflows, channels, team members, and built-in multi-tenancy. Starter at $250/mo (billed annually) adds 50,000 messages, removes branding, and includes priority support. Enterprise adds SAML SSO, SCIM, HIPAA BAA, and per-customer branding.</p>
+<p><strong>Pros:</strong> Code-first workflows with version control; native multi-tenancy on every plan; strong developer experience and documentation. 
+<strong>Cons:</strong> No in-app inbox component; batching and digests are limited; higher entry price than SuprSend Essentials. 
+<strong>Pricing:</strong> Free 10k msgs/mo; Starter $250/mo billed annually; Enterprise custom as of November 2026.</p>
+<h2>SuprSend</h2>
+<p><a href="https://www.suprsend.com/pricing">SuprSend</a> is an orchestration API with a dashboard, CLI, and AI agent. Workflows support delay, batch, digest, throttle, branching, and a visual template editor per channel with Handlebars/JSONNET. Channels: email, SMS, WhatsApp, in-app inbox (React, Vue, Flutter, React Native, iOS, Android), mobile push (FCM, APNs, Expo), web push, Slack, and Microsoft Teams. The free plan gives 10,000 notifications/month, all channels, branded in-app feed, lists, broadcasts, and 30-day logs. Essentials at $100/mo billed annually removes branding, adds translations, recipient-timezone sending, and 90-day logs. Business ($250/mo billed annually) unlocks batching, digests, user preferences, objects, and log sync. Enterprise adds multi-tenant data modelling, audit trail, RBAC, SAML, self-hosting, and BYOC.</p>
+<p><img src="https://adheshsuryatej.github.io/My-content-Drafts/arjun/2026-11-14-plx6hur9/section-6.jpg" alt="A central gear block connected by arrows to eight channel blocks: bell, envelope, chat bubble, phone, laptop, speech bubble, inbox and toggle." /></p>
+<p><strong>Pros:</strong> Widest channel set including in-app inbox and preferences; self-hosted and BYOC options; lower starting price than Knock; G2 4.8/5 (≈128 reviews, Oct 2026). 
+<strong>Cons:</strong> Batching, digests, preferences, and objects gated to Business ($250/mo); multi-tenancy is Enterprise or paid add-on; smaller brand and logo set than Knock or Courier. 
+<strong>Pricing:</strong> Free 10k/mo; Essentials $100/mo billed annually; Business $250/mo billed annually; Enterprise custom as of November 2026.</p>
+<h2>How to choose</h2>
+<p><strong>Team size and ops bandwidth.</strong> A two-person startup shipping only mobile push can stay on raw FCM/APNs or OneSignal's free tier for months. Once you add email, SMS, or an in-app inbox, the integration surface grows fast. An orchestration API pays for itself when the second channel lands.</p>
+<p><strong>Channel mix.</strong> If the roadmap is push-only, FCM/APNs or OneSignal keep things simple. If product wants transactional email, WhatsApp alerts, and a Slack feed for the same event, Knock or SuprSend let you write one workflow that fans out with fallback and user preferences built in.</p>
+<p><strong>Free-tier runway.</strong> OneSignal gives you 1,000 MAU free. Knock and SuprSend give 10,000 total notifications/month free. FCM/APNs are free forever but cost engineering time. Map your expected monthly notification volume against those limits before you commit.</p>
+<p><strong>Multi-tenancy and preferences.</strong> B2B SaaS with per-customer branding, sub-tenants, and admin-enforced preference defaults need SuprSend Enterprise or Knock Enterprise. Single-tenant products can use any tier.</p>
+<p><img src="https://adheshsuryatej.github.io/My-content-Drafts/arjun/2026-11-14-plx6hur9/diagram-a8f59788.png" alt="Raw platform SDKs vs. bundled platform vs. orchestration API fan-out." />
+<em>Figure 1: Raw platform SDKs vs. bundled platform vs. orchestration API fan-out.</em></p>
+<ul>
+<li><strong>Start with FCM/APNs</strong> if you only need push, have engineering time for token infrastructure, and want zero vendor cost.</li>
+<li><strong>Pick OneSignal</strong> if you want a dashboard, Journeys, and web push today, and your MAU stays under 1,000 for now.</li>
+<li><strong>Choose Knock</strong> if you want code-first workflows, native multi-tenancy on the free plan, and don't need an in-app inbox.</li>
+<li><strong>Choose SuprSend</strong> if you need the broadest channel set (inbox, preferences, WhatsApp, Slack, Teams), self-hosting options, and a lower paid entry point.</li>
+</ul>
+<hr />
+<p><em>Disclosure: this article was written in collaboration with SuprSend, one of the platforms covered above.</em></p>
+<p><em>Drafted with AI assistance, reviewed and edited by [AUTHOR NAME].</em></p>
+</article>
+</body>
+</html>
