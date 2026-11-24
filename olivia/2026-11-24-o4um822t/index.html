@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Build a Provider-Agnostic SMS Notification System with Triggers, Retries and Fallback</title>
+</head>
+<body>
+<article>
+<h1>Build a Provider-Agnostic SMS Notification System with Triggers, Retries and Fallback</h1>
+<p><img src="https://adheshsuryatej.github.io/My-content-Drafts/olivia/2026-11-24-o4um822t/cover.jpg" alt="A phone sends a message along a path that splits into a main and a backup lane, each with a signal tower and a retry loop, so the message still reaches a second phone protected by a shield." /></p>
+<p>A provider-agnostic SMS notification system lets you send alerts through any SMS vendor while keeping your application code unchanged. When one provider degrades, the system retries with backoff and fails over to a backup vendor automatically. Get it right and your on-call pages arrive even during a Twilio outage; get it wrong and you silently drop messages or bill for retries that never reach users.</p>
+<h2>Prerequisites</h2>
+<ul>
+<li><strong>Node.js 20+</strong> and npm for the example code</li>
+<li>A <strong>Twilio</strong> account with a verified sender ID and Messaging Service SID</li>
+<li>An <strong>Amazon <a href="https://docs.aws.amazon.com/sns/latest/dg/sns-mobile-application-as-subscriber.html">SNS</a></strong> topic configured for SMS with a spend limit set</li>
+<li>A workflow engine that supports versioned runs, retries and branching, the examples use <a href="https://www.suprsend.com/products/workflows">SuprSend workflows</a> but the pattern applies to any engine with similar primitives</li>
+</ul>
+<h2>Setting Up the Project</h2>
+<p>Initialize a fresh repository and install the vendor SDKs you'll call from the workflow steps.</p>
+<pre>mkdir sms-alerts &amp;&amp; cd sms-alerts<br>npm init -y<br>npm install @twilio/sdk @aws-sdk/client-sns</pre>
+<p>Create a <code>.env</code> file with the credentials each provider needs. Keep the keys out of source control.</p>
+<pre>TWILIO_ACCOUNT_SID=ACxxxx<br>TWILIO_AUTH_TOKEN=your_token<br>TWILIO_MESSAGING_SERVICE_SID=MGxxxx<br>AWS_REGION=us-east-1<br>AWS_ACCESS_KEY_ID=AKIA...<br>AWS_SECRET_ACCESS_KEY=...<br>SNS_TOPIC_ARN=arn:aws:sns:us-east-1:123456789012:sms-alerts</pre>
+<h2>Defining the Trigger Event</h2>
+<p>Every alert starts as a normalized event so the workflow doesn't care which service originated it. Define a small JSON schema and validate incoming payloads against it.</p>
+<pre>{<br> "$schema": "http://json-schema.org/draft-07/schema#",<br> "type": "object",<br> "required": ["alertId", "to", "body", "priority"],<br> "properties": {<br> "alertId": { "type": "string", "format": "uuid" },<br> "to": { "type": "string", "pattern": "^\\+[1-9]\\d{1,14}$" },<br> "body": { "type": "string", "maxLength": 1600 },<br> "priority": { "type": "string", "enum": ["high", "normal", "low"] }<br> }<br>}</pre>
+<p>Your API endpoint (or a <a href="https://api.slack.com/messaging/webhooks">webhook</a> from Datadog, PagerDuty, etc.) posts to this schema. The workflow engine receives the validated payload and starts a run keyed by <code>alertId</code> so duplicate webhooks don't create duplicate messages.</p>
+<h2>Building the Retry Logic with Exponential Backoff</h2>
+<p>Transient failures (network blips, 429 responses) should retry; permanent failures (invalid number, blocked sender) should not. Implement a retry helper that wraps any provider call.</p>
+<pre>async function withRetry&lt;T&gt;(<br> fn: () =&gt; Promise&lt;T&gt;,<br> options: { maxAttempts: number; baseDelayMs: number; isRetryable: (err: unknown) =&gt; boolean } = {<br> maxAttempts: 3,<br> baseDelayMs: 500,<br> isRetryable: (err) =&gt; err instanceof Error &amp;&amp; /^(ECONNRESET|ETIMEDOUT|429|5\d{2})$/.test(err.message)<br> }<br>): Promise&lt;T&gt; {<br> let attempt = 0;<br> while (true) {<br> try {<br> return await fn();<br> } catch (err) {<br> attempt++;<br> if (attempt &gt;= options.maxAttempts ||!options.isRetryable(err)) throw err;<br> const delay = options.baseDelayMs * 2 ** (attempt - 1) + Math.random() * 100;<br> await new Promise((r) =&gt; setTimeout(r, delay));<br> }<br> }<br>}</pre>
+<p>The helper uses exponential backoff with jitter so a fleet of workers doesn't hammer a recovering provider all at once. Only errors that match the retryable pattern (connection resets, timeouts, 429, 5xx) trigger a retry. Invalid-number errors (Twilio 21211, 21614) fail fast.</p>
+<h2>Adding Provider Fallback Routing</h2>
+<p>When the primary provider returns a permanent failure, route the same alert to a secondary provider. The workflow step looks like this:</p>
+<pre>async function sendWithFallback(payload: AlertPayload) {<br> try {<br> return await withRetry(() =&gt; sendViaTwilio(payload));<br> } catch (primaryErr) {<br> if (isPermanent(primaryErr)) {<br> console.warn('Twilio permanent failure, falling back to SNS', { alertId: payload.alertId, error: primaryErr });<br> return await withRetry(() =&gt; sendViaSns(payload));<br> }<br> throw primaryErr;<br> }<br>}<br>​<br>function isPermanent(err: unknown) {<br> if (!(err instanceof Error)) return false;<br> return /^(21211|21614|21610)$/.test(err.message);<br>}</pre>
+<p>Twilio's error dictionary lists codes that indicate a permanent problem such as invalid destination (21211, 21614, 21610). Amazon SNS accepts <code>PhoneNumber</code> and <code>Message</code> parameters via its <code>Publish</code> API, so the payload maps directly <a href="https://docs.aws.amazon.com/pdfs/sns/latest/dg/sns-dg.pdf">Publish API</a>. Set an SNS <code>MonthlySpendLimit</code> to cap costs if the fallback fires heavily.</p>
+<h2>Wiring It Together in a Workflow Engine</h2>
+<p>A workflow engine turns the ad-hoc functions above into a durable, observable run. In SuprSend you'd model it as a visual workflow:</p>
+<ol>
+<li><strong>Trigger</strong>, event ingest (API or webhook) validated against the schema.</li>
+<li><strong>Branch</strong>, if <code>priority === "high"</code> skip the digest node and go straight to send.</li>
+<li><strong>Send primary</strong>, function node calling <code>sendViaTwilio</code> with the retry wrapper.</li>
+<li><strong>Branch on error</strong>, catch permanent failures, log the reason, then invoke the fallback node.</li>
+<li><strong>Send fallback</strong>, function node calling <code>sendViaSns</code> with its own retry wrapper.</li>
+<li><strong>Log result</strong>, write delivery status, provider used, latency and error code to the message log.</li>
+</ol>
+<p><img src="https://adheshsuryatej.github.io/My-content-Drafts/olivia/2026-11-24-o4um822t/diagram-78b3ae1b.png" alt="Trigger → retry → fallback flow inside the workflow engine." /></p>
+<p><em>Figure 1: Trigger → retry → fallback flow inside the workflow engine.</em></p>
+<p>The engine handles idempotency keys (the <code>alertId</code>), versioning (draft/live), and observability (step logs, blocked-send reasons) without extra code. You can also add a throttle node before the send steps to respect per-provider rate limits.</p>
+<h2>Testing Failure Scenarios</h2>
+<p>Verify the retry and fallback paths before you ship.</p>
+<p><img src="https://adheshsuryatej.github.io/My-content-Drafts/olivia/2026-11-24-o4um822t/section-7.jpg" alt="Felt craft test cards show five failure cases, a broken signal, a timer, a crossed-out phone, a cut cable and a catch basket, above a blocked message path that detours around to reach the other phone." /></p>
+<p><strong>Transient network error.</strong> Point the Twilio SDK at a mock server that returns 503 twice then 200. The message should send on the third attempt with latency logged.</p>
+<p><strong>Rate limit (429).</strong> Mock returns 429 with <code>Retry-After: 1</code>. Backoff should respect the header and succeed on retry.</p>
+<p><strong>Invalid destination number.</strong> Send to <code>+15550000000</code> (Twilio test code for invalid). Primary should fail fast with error 21211, and fallback should send via SNS.</p>
+<p><strong>Primary provider outage.</strong> Block egress to <code>api.twilio.com</code> in CI. All alerts should route to SNS with no alerts lost.</p>
+<p><strong>Fallback also fails.</strong> Block both egress paths. The run should be marked failed, and the alert should appear in a dead-letter queue for manual review.</p>
+<p>Twilio now bills for failed messages that aren't caused by their internal errors, so the test suite should also assert that permanent failures don't generate billable retries.</p>
+<h2>Wrapping Up</h2>
+<ul>
+<li>Normalize the trigger payload once; every downstream step stays provider-agnostic.</li>
+<li>Wrap each provider call in a retry helper that distinguishes transient from permanent errors using the provider's own error codes.</li>
+<li>Fail over to a secondary provider only on permanent failures; keep the same payload shape so the fallback is a drop-in replacement.</li>
+<li>Run the whole sequence inside a workflow engine so you get durability, observability and versioning for free.</li>
+<li>Extend next: add a digest node for low-priority alerts, a preference check so users can opt out of SMS, and a webhook callback that updates your own dashboard with delivery receipts.</li>
+</ul>
+<hr />
+<p><em>Disclosure: this article was written in collaboration with SuprSend, one of the platforms covered above.</em></p>
+<p><em>Drafted with AI assistance, reviewed and edited by [AUTHOR NAME].</em></p>
+</article>
+</body>
+</html>
