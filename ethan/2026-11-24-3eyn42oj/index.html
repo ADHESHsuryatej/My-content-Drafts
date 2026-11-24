@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Designing a Notification System: Queues, Idempotency, Data Model and Build-vs-Buy</title>
+</head>
+<body>
+<article>
+<h1>Designing a Notification System: Queues, Idempotency, Data Model and Build-vs-Buy</h1>
+<p><img src="https://adheshsuryatej.github.io/My-content-Drafts/ethan/2026-11-24-3eyn42oj/cover.jpg" alt="A row of five blue icons showing a message moving from an app through a queue, a shield gate and a routing switch to a phone." /></p>
+<p>A notification system moves events from your application to the right channel for each user without losing, duplicating or delaying messages. Get it right, and users act on time-sensitive alerts. Get it wrong, and you ship duplicate pushes, miss critical emails or spend weeks debugging queue backlogs.</p>
+<p><img src="https://adheshsuryatej.github.io/My-content-Drafts/ethan/2026-11-24-3eyn42oj/diagram-75a54465.png" alt="End-to-end flow from event ingestion to provider delivery." />
+<em>Figure 1: End-to-end flow from event ingestion to provider delivery.</em></p>
+<h2>What a notification system actually does</h2>
+<p>The system owns six responsibilities: ingestion, queuing, templating, routing, delivery and observability. Ingestion accepts an event payload from your code and validates it against a schema. Queuing buffers the work so traffic spikes don't crash downstream handlers. Templating renders channel-specific content from a single source of truth. Routing decides which channels a user receives based on preferences, tenant defaults and channel health. Delivery calls the provider API (<a href="https://developer.apple.com/documentation/usernotifications/sending-notification-requests-to-apns">APNs</a>, FCM, SendGrid, Twilio) and handles retries. Observability logs every step so you can trace a notification from trigger to click. Knock's guide to push delivery notes that building all of this yourself means maintaining token management, provider integrations, preference systems and analytics on top of the core delivery logic.</p>
+<h2>Choosing the queue backbone: RabbitMQ vs Kafka</h2>
+<p>Notifications are independent units of work: each one must be routed, rendered and acknowledged separately. RabbitMQ models this natively with queues that track per-message delivery state, support TTL, priorities and delayed retries, and replicate acknowledgements through Raft before they take effect. <a href="https://www.rabbitmq.com/docs/compare/kafka">Kafka</a> 4.2 added share groups that let consumers acknowledge individual messages under a lock, but the log remains the source of truth and queue semantics are a consumption mode layered on top. For most notification workloads, RabbitMQ's queue semantics (hold until 14:32, retry one message in three minutes, dead-letter the poison pill) map directly to the operational knobs you need. Use Kafka when you already run it for event streaming and want a single broker; use RabbitMQ when you want a queue that behaves like a queue.</p>
+<p><img src="https://adheshsuryatej.github.io/My-content-Drafts/ethan/2026-11-24-3eyn42oj/diagram-68743b39.png" alt="RabbitMQ retry loop with delayed retry and dead-letter queue." />
+<em>Figure 2: RabbitMQ retry loop with delayed retry and dead-letter queue.</em></p>
+<h2>Making consumers idempotent so retries don't duplicate sends</h2>
+<p>At-least-once delivery means the same message can arrive twice: producer retries, missing acknowledgements, or a crash after the database write but before the ack. The fix is a stable deduplication key that identifies the logical operation, not the transport envelope. Extract a producer-assigned message ID or a business-level idempotency key (for example, <code>user:123:password_reset:2026-11-15</code>). Check a persistent store (Redis SET with TTL, a Postgres unique index, or a dedicated deduplication table) for that key. If it exists, ack and stop. If not, process and record the key in the same transaction. Propagate the key to any downstream service so they can deduplicate their own writes. This pattern turns at-least-once into effectively-once without requiring exactly-once semantics from the broker.</p>
+<p><img src="https://adheshsuryatej.github.io/My-content-Drafts/ethan/2026-11-24-3eyn42oj/section-3.jpg" alt="Two identical keyed message cards reach a padlock gate with a checklist, and only one bell notification reaches the phone." /></p>
+<h2>Data model and schema: users, channels, templates and events</h2>
+<p>Start with four core entities. <strong>Users</strong> (or recipients) store channel addresses (<code>email</code>, <code>phone</code>, <code>apns_token</code>, <code>fcm_token</code>, <code>web_push_subscription</code>) plus a <code>locale</code> and <code>timezone</code>. <strong>Channels</strong> define the provider mapping and fallback order per category (transactional, marketing, security). <strong>Templates</strong> hold channel-specific content (subject, body, Handlebars/JSONNET partials) versioned per locale. <strong>Events</strong> capture the trigger payload with a JSON Schema so consumers can validate before rendering <a href="https://docs.aws.amazon.com/powertools/typescript/latest/features/validation">a few words</a> A minimal <code>notification_event</code> schema includes <code>event_id</code> (UUID), <code>event_type</code> (slug), <code>recipient_id</code>, <code>payload</code> (object), <code>created_at</code> and <code>idempotency_key</code>. Store templates and channel configs in versioned rows so you can roll back a bad edit without a code deploy.</p>
+<h2>Handling multi-channel routing and user preferences at send time</h2>
+<p>Routing resolves at send time, not at template author time. A routing service checks: is the channel enabled for this category? Does the user have a valid address for it? What does the user's preference centre say, opted out, digest-only, or specific channels? What is the tenant default? Courier's routing guide describes layering topic defaults, tenant overrides and user choices, with a <code>REQUIRED</code> flag that forces delivery for critical flows like two-factor codes. Build the router as a pure function: input (event, user profile, tenant config) → output (ordered channel list). That makes it testable, observable and replaceable without touching the queue consumer.</p>
+<h2>Build versus buy: when a managed platform saves months</h2>
+<p>com/articles/bottlenecks-of-scaleups/04-costs.html), millisecond-precision delivery, or deep multi-tenant isolation with per-tenant SLAs. If your needs fall outside those, a dedicated platform ships the same capabilities in days. The decision rule: build only when the notification system <em>is</em> your product differentiation; buy when it's infrastructure that lets you ship the real product faster.</p>
+<h2>Closing recap</h2>
+<ul>
+<li><strong>Architectural checklist:</strong> queue with per-message durability (RabbitMQ), stable deduplication keys stored atomically, versioned templates with JSON Schema validation, pure-function router that respects user and tenant preferences, observability on every hop.</li>
+<li><strong>Build-vs-buy rule:</strong> if you're not solving HIPAA, billions-of-messages scale, sub-millisecond latency or white-label multi-tenancy, a managed platform returns months of engineering time to your core product.</li>
+</ul>
+<hr />
+<p><em>Drafted with AI assistance, reviewed and edited by [AUTHOR NAME].</em></p>
+</article>
+</body>
+</html>
