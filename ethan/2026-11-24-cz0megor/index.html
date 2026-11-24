@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>How to set up Android push notifications with Firebase Cloud Messaging</title>
+</head>
+<body>
+<article>
+<h1>How to set up Android push notifications with Firebase Cloud Messaging</h1>
+<p><img src="https://adheshsuryatej.github.io/My-content-Drafts/ethan/2026-11-24-cz0megor/cover.jpg" alt="A pink glass cloud sends a glowing bell notification along a dotted arrow to a locked smartphone, where it appears as a card on the lock screen." /></p>
+<p>Push notifications are messages delivered to a user's device even when your app isn't open. Get them right and users see timely updates; get them wrong and you waste battery, miss messages, or drive uninstalls.</p>
+<h2>Prerequisites</h2>
+<p>Before you write code, gather these pieces:</p>
+<ul>
+<li>Android Studio (Giraffe or later) with an Android 7.0+ emulator or device that has Google Play Services.</li>
+<li>A Firebase project. Create one in the Firebase console if you don't have one.</li>
+<li>The <code>google-services.json</code> file downloaded from that project and placed in your app module's <code>app/</code> directory.</li>
+<li>A backend server (or Cloud Function) that can call the FCM HTTP v1 API with a service account. <a href="https://firebase.google.com/docs/cloud-messaging/android/get-started">Firebase Cloud Messaging Android setup</a></li>
+</ul>
+<h2>Creating the Firebase project and Android app</h2>
+<p>Open the Firebase console, create a project, then register your Android app using the exact <code>applicationId</code> from your <code>build.gradle.kts</code>. Download <code>google-services.json</code> and drop it into <code>app/</code>.</p>
+<p>In your project-level <code>build.gradle.kts</code> add the Google Services plugin:</p>
+<script src="https://gist.github.com/ADHESHsuryatej/dc4d823a3f4d2efeebf8faf008a1618d.js"></script>
+<p>In <code>app/build.gradle.kts</code> apply the plugin and add the Firebase BOM plus the Messaging dependency:</p>
+<script src="https://gist.github.com/ADHESHsuryatej/af83c8fa8dbe8695f693321931b8200f.js"></script>
+<p>Sync Gradle. The BOM keeps library versions compatible. <a href="https://firebase.google.com/docs/cloud-messaging/android/get-started">Firebase Cloud Messaging Android setup</a></p>
+<h2>Extending FirebaseMessagingService to handle messages</h2>
+<p>Create a class that extends <code>FirebaseMessagingService</code>. Override <code>onMessageReceived</code> for foreground data payloads and <code>onNewToken</code> to capture token rotations.</p>
+<script src="https://gist.github.com/ADHESHsuryatej/a41bd05abc7f5886a8def0f91fee80ee.js"></script>
+<p>Declare the service in <code>AndroidManifest.xml</code> inside <code>&lt;application&gt;</code> with the <code>MESSAGING_EVENT</code> intent filter and <code>android:exported="false"</code>:</p>
+<script src="https://gist.github.com/ADHESHsuryatej/a0598483bac9ba1d99adc2fdf610c823.js"></script>
+<p>Optionally set a default icon and color via metadata so notifications look consistent when your payload doesn't specify them. <a href="https://firebase.google.com/docs/cloud-messaging/manage-tokens">Manage FCM registration tokens</a></p>
+<h2>Requesting the registration token on the client</h2>
+<p>In your main activity's <code>onCreate</code>, request the current token and send it to your server with a timestamp. The token can rotate, so <code>onNewToken</code> will fire again when it does.</p>
+<script src="https://gist.github.com/ADHESHsuryatej/0ecf7c41fc6fbfc156dc399c8430b363.js"></script>
+<p>On your server, store the token alongside the user ID and a <code>last_updated</code> timestamp. Schedule a monthly job to refresh tokens by calling the same client method or by relying on <code>onNewToken</code>. Firebase considers a registration expired after 270 days of inactivity and will reject sends to it. <a href="https://firebase.google.com/docs/cloud-messaging/manage-tokens">Manage FCM registration tokens</a></p>
+<h2>Sending a test notification from your server</h2>
+<p>Use the Firebase Admin SDK (Node, Python, Java, Go) or call the HTTP v1 API directly. For a display notification, set the <code>notification</code> key; for a custom payload, set the <code>data</code> key.</p>
+<p>Node example with Admin SDK:</p>
+<script src="https://gist.github.com/ADHESHsuryatej/d94580aa73428b4dab8d5781adf82a2f.js"></script>
+<p>The <code>android.priority: 'high'</code> wakes a dozing device. Verify delivery in the Firebase console under <strong>Messaging → Reports</strong>.</p>
+<h2>Handling background and terminated states</h2>
+<p>FCM treats messages differently based on app state and message type:</p>
+<p><strong>Foreground.</strong> Both notification and data messages arrive in <code>onMessageReceived</code>.</p>
+<p><strong>Background.</strong> Notification messages appear in the system tray; data messages still call <code>onMessageReceived</code>.</p>
+<p><strong>Terminated.</strong> Notification messages appear in the system tray; data messages call <code>onMessageReceived</code> via <code>WorkManager</code>.</p>
+<p>When your app is in the background, a notification message appears in the system tray. A tap opens the launcher activity with the data payload in the intent extras. For data-only messages in the background, <code>onMessageReceived</code> still fires but you have a short execution window (a couple of seconds). Offload long work (network calls, image downloads) to <code>WorkManager</code>.</p>
+<script src="https://gist.github.com/ADHESHsuryatej/cfee3f6a85f0c8281c2f6d692e3983d4.js"></script>
+<p>Notification messages are always collapsible; data messages are not. <a href="https://firebase.google.com/docs/cloud-messaging/android/receive-messages">Receive messages on Android</a></p>
+<h2>Gotchas: token expiration, payload limits and permission on Android 13+</h2>
+<ul>
+<li><strong>Token expiration:</strong> FCM garbage-collects registrations inactive for 270 days. Your monthly refresh job prevents stale tokens from polluting your send list. <a href="https://firebase.google.com/docs/cloud-messaging/manage-tokens">Manage FCM registration tokens</a></li>
+<li><strong>Payload limit:</strong> Both notification and data messages cap at 4096 bytes (the Firebase console enforces a 1000-character limit). Keep custom keys short.</li>
+<li><strong>Android 13+ runtime permission:</strong> Apps targeting API 33+ must request <code>POST_NOTIFICATIONS</code> at runtime before any notification can appear. Call <code>ActivityCompat.requestPermissions</code> in your first activity and handle the callback. <a href="https://developer.android.com/develop/ui/views/notifications/notification-permission">Android notification permission</a></li>
+</ul>
+<p><img src="https://adheshsuryatej.github.io/My-content-Drafts/ethan/2026-11-24-cz0megor/section-7.jpg" alt="Three lanes of yellow notification bubbles head toward a blue phone, blocked by an hourglass tag, an oversized envelope stuck in a narrow slot, and a padlock with a switched-off toggle." /></p>
+<h2>Wrapping up</h2>
+<ul>
+<li><strong>Token flow:</strong> Client requests token → sends to your server → server stores with timestamp → monthly refresh keeps it fresh.</li>
+<li><strong>Server send path:</strong> Your server calls FCM HTTP v1 API (via Admin SDK or REST) with the stored token and either <code>notification</code> or <code>data</code> payload.</li>
+<li><strong>Two message types:</strong> Notification messages for automatic display; data messages when your app needs full control.</li>
+<li><strong>Monitor:</strong> Open the Firebase console → Messaging → Reports to watch delivery, open and error rates per campaign.</li>
+</ul>
+<p>With these pieces wired, you own the full push stack without a third-party wrapper.</p>
+<hr />
+<p><em>Drafted with AI assistance, reviewed and edited by [AUTHOR NAME].</em></p>
+</article>
+</body>
+</html>
