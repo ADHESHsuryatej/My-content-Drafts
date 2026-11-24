@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>How to set up APNs push notifications in iOS</title>
+</head>
+<body>
+<article>
+<h1>How to set up APNs push notifications in iOS</h1>
+<p><img src="https://adheshsuryatej.github.io/My-content-Drafts/ethan/2026-11-24-equwnzrv/cover.jpg" alt="A glass server sends a glowing beam through a padlock shield to a smartphone whose lock screen shows a bell notification." /></p>
+<p>Push notifications are messages delivered to a user's device even when your app isn't open. Get the <a href="https://developer.apple.com/documentation/usernotifications/sending-notification-requests-to-apns">APNs in iOS</a> setup right, and your server reaches every iPhone reliably; get it wrong, and users never see the alerts you built.</p>
+<p>We'll walk through native APNs integration using token-based authentication, the entitlements Xcode adds, device-token handling, and the HTTP/2 call your provider server makes. No vendor SDKs required.</p>
+<h2>Prerequisites</h2>
+<p>Before you start, make sure you have:</p>
+<ul>
+<li>A paid <a href="https://developer.apple.com/programs/">Apple Developer Program</a> membership with Admin access.</li>
+<li><a href="https://developer.apple.com/xcode/">Xcode</a> installed (Xcode 14 or later for simulator support).</li>
+<li>A backend server that can open HTTP/2 connections and sign ES256 JWTs (Node, Go, Python, Java all work).</li>
+</ul>
+<h2>Enabling push capability and entitlements in Xcode</h2>
+<p>Open your project, select the app target, and go to <strong>Signing & Capabilities</strong>. Click <strong>+ Capability</strong>, search for <strong>Push Notifications</strong>, and add it. Xcode injects the <a href="https://developer.apple.com/documentation/bundleresources/entitlements/aps-environment"><code>aps-environment</code></a> entitlement into your app bundle. The value is <code>development</code> when you build with a development provisioning profile and <code>production</code> for a distribution profile. This entitlement tells APNs which environment your device token belongs to.</p>
+<p>If you skip this step, <code>registerForRemoteNotifications()</code> fails with a missing-entitlement error.</p>
+<h2>Choosing token-based (.p8) vs certificate-based (.p12) auth</h2>
+<p>Apple supports two ways to authenticate your provider server:</p>
+<ul>
+<li><strong>.p8 authentication key (token-based):</strong> a single key per Apple Developer team, no expiry, works for both sandbox and production, and covers every app under that team.</li>
+<li><strong>.p12 certificate (certificate-based):</strong> app-specific, expires after one year, and must be renewed annually.</li>
+</ul>
+<p>OneSignal and AWS <a href="https://docs.aws.amazon.com/sns/latest/dg/sns-mobile-application-as-subscriber.html">SNS</a> both recommend the.p8 approach because it removes certificate rotation from your operational calendar. We'll use token-based auth for the rest of this guide.</p>
+<h2>Generating and downloading a.p8 authentication key</h2>
+<ol>
+<li>Sign in to the Apple Developer portal.</li>
+<li>Go to <strong>Certificates, Identifiers & Profiles → Keys</strong>.</li>
+<li>Click <strong>+</strong>, choose <strong>Apple Push Notifications service (APNs)</strong>, and enable <strong>Sandbox & Production</strong>.</li>
+<li>Name the key, register it, and <strong>download the.p8 file immediately</strong>. You cannot download it again.</li>
+<li>Note the <strong>Key ID</strong> (10-character string like <code>ABC123DEFG</code>) and your <strong>Team ID</strong> (also 10 characters, shown at the top right of the portal).</li>
+</ol>
+<p><img src="https://adheshsuryatej.github.io/My-content-Drafts/ethan/2026-11-24-equwnzrv/section-4.jpg" alt="A glowing magenta key drops along a downward arrow into an open cyan safe with a padlock, beside a faded dashed outline of the key." /></p>
+<p>Store the.p8 file securely; it's the private key your server uses to sign every JWT.</p>
+<h2>Registering the app and receiving a device token at launch</h2>
+<p>Every time your app launches, it must ask APNs for a device token. In iOS, call <code>UIApplication.shared.registerForRemoteNotifications()</code> early in <code>application(_:didFinishLaunchingWithOptions:)</code> <a href="https://developer.apple.com/documentation/usernotifications/registering-your-app-with-apns">source</a>. On success, the system calls your app delegate's <code>application(_:didRegisterForRemoteNotificationsWithDeviceToken:)</code> with a <code>Data</code> object. Convert it to a hex string and send it to your provider server immediately.</p>
+<pre>func application(_ application: UIApplication,<br>                 didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {<br>    let token = deviceToken.map { String(format: "%02.2hhx", $0) }.joined()<br>    sendDeviceTokenToServer(token)<br>}</pre>
+<p>Also implement <code>application(_:didFailToRegisterForRemoteNotificationsWithError:)</code> to log failures (network, entitlements, sandbox vs production mismatch) and retry later.</p>
+<p><strong>Important:</strong> never cache the token locally. APNs issues a new token when a user restores from backup, reinstalls the OS, or installs the app on a new device. Fetch it at every launch.</p>
+<h2>Building a JWT provider authentication token for APNs</h2>
+<p>APNs expects a signed JWT in the <code>Authorization: bearer &lt;token&gt;</code> header of every HTTP/2 request. The token header must contain <code>alg: "ES256"</code> and <code>kid: "&lt;Key ID&gt;"</code>. The payload requires <code>iss</code> (your Team ID) and <code>iat</code> (issued-at timestamp, seconds since epoch, UTC). Sign the JWT with the private key from your.p8 file using the P-256 curve and SHA-256.</p>
+<pre>import jwt, time<br>​<br>def apns_auth_token(team_id: str, key_id: str, p8_path: str) -&gt; str:<br>    with open(p8_path) as f:<br>        private_key = f.read()<br>    payload = {<br>        "iss": team_id,<br>        "iat": int(time.time())<br>    }<br>    headers = {"alg": "ES256", "kid": key_id}<br>    return jwt.encode(payload, private_key, algorithm="ES256", headers=headers)</pre>
+<p>APNs rejects tokens older than one hour with a <code>403 ExpiredProviderToken</code> error. Generate a fresh token before each batch of sends, or cache it and refresh at 55 minutes.</p>
+<h2>Sending a notification via HTTP/2 POST to APNs</h2>
+<p>Your provider server POSTs to <code>https://api.push.apple.com/3/device/{device_token}</code> over HTTP/2. The request body is a JSON payload (max 4 KB, 5 KB for VoIP). Required headers:</p>
+<p><strong>apns-topic.</strong> Your app's Bundle ID (e.g., <code>com.example.app</code>).</p>
+<p><strong>authorization.</strong> <code>bearer &lt;JWT&gt;</code>.</p>
+<p><strong>apns-push-type.</strong> <code>alert</code>, <code>background</code>, <code>voip</code>, etc.</p>
+<p><strong>apns-priority.</strong> <code>10</code> (immediate) or <code>5</code> (power-efficient).</p>
+<pre>{<br>  "aps": {<br>    "alert": { "title": "Deploy failed", "body": "Build #231 exited with code 1" },<br>    "sound": "default",<br>    "badge": 1<br>  }<br>}</pre>
+<p>APNs returns <code>200</code> on acceptance. A <code>410</code> means the device token is invalid (app uninstalled); remove it from your store. A <code>403</code> usually means an expired or malformed JWT. Implement exponential backoff and retry on <code>429</code> or <code>5xx</code>.</p>
+<h2>Testing with the iOS simulator and sandbox environment</h2>
+<p>Since Xcode 14, the iOS simulator can register with the sandbox APNs environment and receive a device token. Run your app on a simulator, grant the permission prompt, and watch the delegate callback fire. Send a test notification from your server to the sandbox endpoint (<code>api.sandbox.push.apple.com</code>) using the same JWT and the simulator's token. Verify the payload appears in the simulator's notification center.</p>
+<p><img src="https://adheshsuryatej.github.io/My-content-Drafts/ethan/2026-11-24-equwnzrv/section-8.jpg" alt="A green paper server sends a bell notification along a dashed path to a phone standing in a sandbox of yellow sand." /></p>
+<p>If the delegate methods never fire on a CI runner, check that the VM supports the simulator's network stack; GitHub Actions macOS runners work, but nested virtualization sometimes blocks the APNs handshake.</p>
+<h2>Gotchas: token rotation, payload size, environment mismatch</h2>
+<ul>
+<li><strong>Device tokens rotate.</strong> A restore, reinstall, or OS upgrade produces a new token. Always fetch at launch and update your server.</li>
+<li><strong>Payload limit is 4 KB</strong> (5 KB for VoIP). APNs rejects larger bodies with <code>413</code>.</li>
+<li><strong>Environment mismatch.</strong> A development token sent to the production endpoint (or vice versa) yields <code>400 BadDeviceToken</code>. Match the <code>aps-environment</code> entitlement to the APNs host you call.</li>
+<li><strong>JWT expiry.</strong> Tokens older than one hour are rejected. Refresh proactively.</li>
+</ul>
+<h2>Wrapping up</h2>
+<p>You now have the full native flow: Xcode entitlement →.p8 key → device token at launch → hourly JWT → HTTP/2 POST to APNs. From here you can add:</p>
+<ul>
+<li>Retry queues with exponential backoff for transient APNs errors.</li>
+<li>Batching and digest logic so users don't get spammed.</li>
+<li>A multi-channel layer (email, in-app, Slack) that respects user preferences.</li>
+</ul>
+<p>If you'd rather not maintain the provider server yourself, platforms like SuprSend workflows and smart routing let you orchestrate APNs alongside other channels with vendor fallback and retry logic.</p>
+<p><img src="https://adheshsuryatej.github.io/My-content-Drafts/ethan/2026-11-24-equwnzrv/diagram-a529f08c.png" alt="Native APNs flow from app registration to delivered notification." /></p>
+<p><em>Figure 1: Native APNs flow from app registration to delivered notification.</em></p>
+<hr />
+<p><em>Disclosure: this article was written in collaboration with SuprSend, one of the platforms covered above.</em></p>
+<p><em>Drafted with AI assistance, reviewed and edited by [AUTHOR NAME].</em></p>
+</article>
+</body>
+</html>
