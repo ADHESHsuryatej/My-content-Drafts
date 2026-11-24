@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>How to Build In-App Notifications</title>
+</head>
+<body>
+<article>
+<h1>How to Build In-App Notifications</h1>
+<p><img src="https://adheshsuryatej.github.io/My-content-Drafts/arjun/2026-11-24-xo4f360p/cover.jpg" alt="An emerald server stack sends a gold notification bubble along an arrow into a smartphone showing a bell, a feed of notification cards, a toggle and a stacked digest card." /></p>
+<p>In-app notifications are messages users see inside your product while they're using it. They work alongside email and push to keep users informed without leaving the app. Get the implementation right and users act on updates instantly. Get it wrong and they miss critical information or disable notifications entirely.</p>
+<p>We'll wire a real-time in-app notification feed from backend event to frontend component using Next.js, the SuprSend Node SDK, and the in-app inbox React package. You'll end up with a working feed that respects user preferences and supports digests.</p>
+<h2>Prerequisites</h2>
+<ul>
+<li>Node 20 or later</li>
+<li>A <a href="https://www.suprsend.com">SuprSend</a> account (free tier works) or a <a href="https://firebase.google.com/docs/cloud-messaging">Firebase</a> project for push fallback</li>
+<li>A React or Next.js application</li>
+</ul>
+<h2>Setting up the project</h2>
+<p>Initialize a Next.js app and install the SuprSend packages. The Node SDK handles backend calls, while the in-app inbox package provides a drop-in React component.</p>
+<pre>npx create-next-app@latest my-app --typescript --tailwind --eslint<br>cd my-app<br>npm install @suprsend/node @suprsend/react-inbox</pre>
+<p>The <code>@suprsend/node</code> SDK authenticates with your workspace key and secret. The <code>@suprsend/react-inbox</code> package exports an <code>&lt;Inbox /&gt;</code> component that handles feed rendering, real-time updates, and user interactions. For a deeper walkthrough of this setup, see the SuprSend real-time notification tutorial and the app inbox product page.</p>
+<h2>Creating the notification workflow</h2>
+<p>In the SuprSend dashboard, create a workflow with an in-app channel node. Add a template that uses Handlebars for dynamic content, for example, <code>{{actor_name}} commented on {{document_title}}</code>. Enable user preferences on the workflow so recipients can opt out or choose digest frequency per category.</p>
+<p><img src="https://adheshsuryatej.github.io/My-content-Drafts/arjun/2026-11-24-xo4f360p/section-3.jpg" alt="A charcoal and lime pipeline where a commented document flows into a template card with an avatar and document slot, through a gear, into a bell inbox with one toggle on and one off." /></p>
+<p>Workflows support branching, delays, and batching nodes. For a simple comment notification, a single in-app node is enough. The workflows documentation and templates guide cover the visual builder and JSON editing options.</p>
+<h2>Sending a notification from your backend</h2>
+<p>Create a server-side function that triggers the workflow. Use the Node SDK with your workspace credentials.</p>
+<pre>// lib/suprsend.ts<br>import { SuprSend } from '@suprsend/node';<br>​<br>const suprsend = new SuprSend({<br>  workspaceKey: process.env.SUPRSEND_WORKSPACE_KEY!,<br>  workspaceSecret: process.env.SUPRSEND_WORKSPACE_SECRET!,<br>});<br>​<br>export async function sendCommentNotification(<br>  userId: string,<br>  payload: { actorName: string; documentTitle: string; commentUrl: string }<br>) {<br>  await suprsend.workflow.trigger('comment_added', {<br>    distinct_id: userId,<br>    ...payload,<br>  });<br>}</pre>
+<p>Call this function from your API route or server action when a comment is created. The workflow runs, renders the template, and delivers to the in-app inbox. Verify delivery in the SuprSend dashboard logs, you'll see the workflow run, template render, and in-app delivery status. The notification system for SaaS post shows a complete example with error handling.</p>
+<h2>Rendering the in-app inbox on the frontend</h2>
+<p>Drop the <code>&lt;Inbox /&gt;</code> component into your layout. It needs a subscriber ID (your user's ID) and a SuprSend client key.</p>
+<pre>// components/NotificationBell.tsx<br>'use client';<br>​<br>import { Inbox } from '@suprsend/react-inbox';<br>import { useAuth } from '@/lib/auth';<br>​<br>export function NotificationBell() {<br>  const { user } = useAuth();<br>​<br>  return (<br>    &lt;Inbox<br>      subscriberId={user.id}<br>      clientKey={process.env.NEXT_PUBLIC_SUPRSEND_CLIENT_KEY!}<br>      theme="light"<br>      position="bottom-right"<br>    /&gt;<br>  );<br>}</pre>
+<p>Add <code>&lt;NotificationBell /&gt;</code> to your root layout or a persistent header. The component handles <a href="https://developer.mozilla.org/en-US/docs/Web/API/WebSockets_API">WebSocket</a> connections for real-time updates, read/unread state, and actions like marking all as read. Test by triggering a notification from your backend, the bell badge increments instantly. The app inbox product page and React inbox guide cover theming, headless mode, and mobile responsiveness.</p>
+<h2>Adding user preferences and digest controls</h2>
+<p>Users need control over what they receive and when. Embed the SuprSend preference center so they can opt out of categories or choose digest frequency (immediate, hourly, daily) per channel.</p>
+<pre>// app/settings/notifications/page.tsx<br>'use client';<br>​<br>import { PreferenceCenter } from '@suprsend/react-inbox';<br>import { useAuth } from '@/lib/auth';<br>​<br>export default function NotificationSettings() {<br>  const { user } = useAuth();<br>​<br>  return (<br>    &lt;PreferenceCenter<br>      subscriberId={user.id}<br>      clientKey={process.env.NEXT_PUBLIC_SUPRSEND_CLIENT_KEY!}<br>    /&gt;<br>  );<br>}</pre>
+<p>The preference center respects the precedence: user settings override tenant defaults, which override category defaults. Quiet hours use the recipient's timezone. The preferences product page and notification preferences guide explain the schema and embedding options.</p>
+<h2>Testing and debugging</h2>
+<p>Use three layers to confirm everything works:</p>
+<ol>
+<li><strong>SuprSend dashboard logs</strong>, filter by workflow, user, or status. See step-by-step execution: trigger received, template rendered, in-app delivered. Test mode lets you send to a test user without affecting production logs.</li>
+<li><strong>Browser dev tools</strong>, open the Network tab, filter for WebSocket (<code>ws</code>) connections. Confirm the connection opens, receives the notification payload, and updates the badge count.</li>
+<li><strong>Backend logs</strong>, verify the workflow trigger call returns a <code>workflow_run_id</code> and no errors.</li>
+</ol>
+<p>Common issues: missing <code>distinct_id</code> on the trigger call, subscriber ID mismatch between backend and frontend, or the client key not exposed to the browser (prefix with <code>NEXT_PUBLIC_</code> in Next.js). The dashboard docs and Go/WebSocket tutorial show debugging workflows.</p>
+<p><img src="https://adheshsuryatej.github.io/My-content-Drafts/arjun/2026-11-24-xo4f360p/diagram-8abad263.png" alt="Event flows through SuprSend workflow to the in-app inbox React component." /></p>
+<p><em>Figure 1: Event flows through SuprSend workflow to the in-app inbox React component.</em></p>
+<ul>
+<li>Initialize the Next.js project with the SuprSend Node SDK and React inbox package</li>
+<li>Define a workflow with an in-app channel, template, and user preferences</li>
+<li>Trigger the workflow from your backend with a user ID and payload</li>
+<li>Drop the <code>&lt;Inbox /&gt;</code> component into your layout for real-time feed rendering</li>
+<li>Embed the preference center so users control frequency and opt-outs</li>
+<li>Debug using dashboard logs, browser WebSocket inspection, and backend response codes</li>
+</ul>
+<hr />
+<p><em>Disclosure: this article was written in collaboration with SuprSend, one of the platforms covered above.</em></p>
+<p><em>Drafted with AI assistance, reviewed and edited by [AUTHOR NAME].</em></p>
+</article>
+</body>
+</html>
