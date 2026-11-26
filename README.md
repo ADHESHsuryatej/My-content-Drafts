@@ -1,3 +1,3 @@
 # Drafts
 
-Temporary pages for Medium import. Not meant to be read here.
+Just saving my content drafts, instead of asking claude to look through my whole system
